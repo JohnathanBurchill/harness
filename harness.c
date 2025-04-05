@@ -30,6 +30,7 @@ typedef struct pin {
     int number;
     char *name;
     int is_highlighted;
+    int is_under_pointer;
 } pin_t;
 
 typedef struct wire_description {
@@ -67,6 +68,7 @@ typedef struct harness_description {
     connector_description_t *connector_descriptions;
     int n_wire_descriptions;
     wire_description_t *wire_descriptions;
+    int changed;
 } harness_description_t;
 
 typedef struct connector {
@@ -95,7 +97,9 @@ typedef struct harness {
 typedef struct program_state {
     const char *harness_filename;
     harness_description_t *harness_descriptions;
+    harness_t *harnesses;
     int n_harnesses;
+    int harness_index;
     Font title_font;
     Font connector_font;
     Vector2 mouse_position;
@@ -104,12 +108,13 @@ typedef struct program_state {
     Color foreground_color;
     Color background_color;
     float zoom_level;
+
 } program_state_t;
 
 void create_connector(program_state_t *state, connector_t *c);
 void free_connector(connector_t *c);
 int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int hidden);
-void draw_harness(program_state_t *state, harness_t *h);
+void draw_harness(program_state_t *state);
 float text_width(const char *str, Font font, int font_spacing);
 int update_max_string(char *max_str, const char *str);
 void parse_harness_description(program_state_t *state);
@@ -119,11 +124,11 @@ int parse_pin_entry(char *pin_entry, connector_description_t *c);
 int parse_wire_entry(char *wiring, harness_description_t *h);
 void free_connector_description(connector_description_t *t);
 void remove_newline(char *str);
-harness_t *create_harness(program_state_t *state);
-void free_harness(harness_t *h);
+int create_harnesses(program_state_t *state);
+void free_harnesses(program_state_t *state);
 Color get_color_from_string(const char *str);
 int load_fonts(program_state_t *state);
-int draw_text(program_state_t *state, Font font, char *text, Vector2 position, int font_spacing, Color default_color, Color highlighed_color, int force_highlight, int hidden);
+int draw_text(program_state_t *state, Font font, char *text, Vector2 position, int font_spacing, Color default_color, Color highlighed_color, int force_highlight, int hidden, int *is_under_pointer);
 char *read_line(char *ln, size_t len, FILE *fp);
 void adjust_zoom(program_state_t *state, float amount);
 int generate_boilerplate_harness_description(const char *filename, harness_description_t *h);
@@ -132,6 +137,7 @@ harness_description_t *make_harness_description_template(void);
 connector_description_t *add_connector_description(harness_description_t *h, const char *name, const char *type, const char *mate, int n_pins);
 void free_harness_descriptions(program_state_t *state);
 int export_template(int dark_background);
+void try_to_delete_wire(program_state_t *state);
 
 int main(int argc, char **argv)
 {
@@ -162,10 +168,7 @@ int main(int argc, char **argv)
     state.zoom_level = 1.0;
     state.harness_filename = argv[1];
     parse_harness_description(&state);
-    if (state.n_harnesses == 0) {
-        fprintf(stderr, "Error loading harness descriptions from %s\n", argv[1]);
-        return EXIT_FAILURE;
-    }
+
     state.foreground_color = get_color_from_string(DEFAULT_FOREGROUND_COLOR_LIGHT);
     state.background_color = get_color_from_string(DEFAULT_BACKGROUND_COLOR_LIGHT);
     if (state.dark_background == 1) {
@@ -195,15 +198,15 @@ int main(int argc, char **argv)
     GetMouseDelta();
 
     int export_status = 0;
+    int harness_status = 0;
 
     while (running) {
         state.mouse_position = GetMousePosition();
-        harness_t *harness = create_harness(&state);
+        (void)create_harnesses(&state);
         BeginDrawing();
             ClearBackground(state.background_color);
-            draw_harness(&state, harness);
+            draw_harness(&state);
         EndDrawing();
-        free_harness(harness);
 
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
             Vector2 mouse_movement = GetMouseDelta();
@@ -255,12 +258,27 @@ int main(int argc, char **argv)
                         if (export_status != 0) {
                             fprintf(stderr, "Error exporting harness description template.\n");
                         }
+                    } else {
+                        state.harness_index++;
+                        if (state.harness_index >= state.n_harnesses) {
+                            state.harness_index = state.n_harnesses - 1;
+                        }
                     }
+                    break;
+                case KEY_P:
+                        state.harness_index--;
+                        if (state.harness_index < 0) {
+                            state.harness_index = 0;
+                        }
+                    break;
+                case KEY_D:
+                    try_to_delete_wire(&state);
                     break;
                 default:
                     break;
             }
         }
+        free_harnesses(&state);
     }
 
     free_harness_descriptions(&state);
@@ -307,7 +325,8 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
     connector_description_t *cd = c->description;
     wire_description_t *wd = NULL;
     pin_t *p = NULL;
-    int n_wires = state->harness_descriptions->n_wire_descriptions;
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    int n_wires = hd->n_wire_descriptions;
 
     int yoff = c->outline.y + CONNECTOR_OUTLINE_GAP;
     int xoff = c->outline.x + c->outline.width / 2 - text_width(cd->name, c->font, c->font_spacing) / 2;
@@ -320,7 +339,7 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
     if (!hidden) {
         DrawRectangleRoundedLinesEx(c->outline, 0.1, 1, line_thickness * state->connector_font.baseSize / FONT_SIZE, state->foreground_color);
     }
-    draw_text(state, c->font, cd->name, (Vector2){xoff, yoff}, c->font_spacing, state->foreground_color, state->foreground_color, 0, hidden);
+    draw_text(state, c->font, cd->name, (Vector2){xoff, yoff}, c->font_spacing, state->foreground_color, state->foreground_color, 0, hidden, NULL);
 
 
     int old_highlighting = 0;
@@ -351,21 +370,21 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
         // Check if pin's wire is highlighted
         old_highlighting = p->is_highlighted;
         for (int k = 0; k < n_wires; ++k) {
-            wd = &state->harness_descriptions->wire_descriptions[k];
+            wd = &hd->wire_descriptions[k];
             if (!p->is_highlighted && ((wd->c1 == cd->number && wd->c1_pin == p->number) || (wd->c2 == cd->number && wd->c2_pin == p->number))) {
                 if (wd->is_highlighted) {
                     p->is_highlighted = 1;
                 }
             }
         }
-        p->is_highlighted = draw_text(state, c->font, pin_line, (Vector2){xoff, yoff}, c->font_spacing, state->foreground_color, highlighted_color, p->is_highlighted, hidden);
+        p->is_highlighted = draw_text(state, c->font, pin_line, (Vector2){xoff, yoff}, c->font_spacing, state->foreground_color, highlighted_color, p->is_highlighted, hidden, &p->is_under_pointer);
         if (p->is_highlighted != old_highlighting) {
             highlighting_updated = 1;
         }
         // highlight its wire and the target connector's pin 
         if (p->is_highlighted) {
             for (int k = 0; k < n_wires; ++k) {
-                wd = &state->harness_descriptions->wire_descriptions[k];
+                wd = &hd->wire_descriptions[k];
                 if (!wd->is_highlighted && ((wd->c1 == cd->number && wd->c1_pin == p->number) || (wd->c2 == cd->number && wd->c2_pin == p->number))) {
                     wd->is_highlighted = 1;
                     highlighting_updated = 1;
@@ -377,8 +396,15 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
     return highlighting_updated;
 }
 
-void draw_harness(program_state_t *state, harness_t *h)
+void draw_harness(program_state_t *state)
 {
+    // TODO draw harness name with (harness_index/n_harnesses) indicating which harness this is.
+    
+    if (state->harness_index < 0 || state->harness_index >= state->n_harnesses) {
+        return;
+    }
+
+    harness_t *h = &state->harnesses[state->harness_index];
     if (h->n_connectors == 0) {
         return;
     }
@@ -786,57 +812,61 @@ void remove_newline(char *str)
 
 }
 
-harness_t *create_harness(program_state_t *state)
+int create_harnesses(program_state_t *state)
 {
-    if (state == NULL) {
-        return NULL;
+    if (state == NULL || state->n_harnesses == 0) {
+        return 1;
     }
 
-    harness_description_t *d = state->harness_descriptions;
-
-    harness_t *h = malloc(sizeof *h);
-    if (h == NULL) {
+    state->harnesses = malloc(sizeof *state->harnesses * state->n_harnesses);
+    if (state->harnesses == NULL) {
         fprintf(stderr, "Error allocating memory\n");
-        return NULL;
+        return 2;
     }
-    memset(h, 0, sizeof *h);
-    h->title_font = state->title_font;
-    h->title_font_spacing = FONT_SPACING;
-    h->description = d;
-    h->n_connectors = d->n_connector_descriptions;
-    h->connectors = malloc(sizeof *h->connectors * h->n_connectors);
-    if (h->connectors == NULL) {
-        fprintf(stderr, "Error allocating memory\n");
-        return NULL;
-    }
-    memset(h->connectors, 0, sizeof *h->connectors * h->n_connectors);
-    connector_t *c = NULL;
-    for (int i = 0; i < h->n_connectors; ++i) {
-        c = &h->connectors[i];
-        c->description = &d->connector_descriptions[i];
-        // reset pin highlighting
-        for (int k = 0; k < c->description->n_pins; ++k) {
-            c->description->pins[k].is_highlighted = 0;
+    memset(state->harnesses, 0, sizeof *state->harnesses * state->n_harnesses);
+    harness_t *h = NULL;
+    for (int i = 0; i < state->n_harnesses; ++i) {
+        h = &state->harnesses[i];
+        h->title_font_spacing = FONT_SPACING;
+        h->title_font = state->title_font;
+        h->description = &state->harness_descriptions[i];
+        h->n_connectors = h->description->n_connector_descriptions;
+        h->connectors = malloc(sizeof *h->connectors * h->n_connectors);
+        if (h->connectors == NULL) {
+            fprintf(stderr, "Error allocating memory\n");
+            return 3;
         }
-        create_connector(state, c);
+        memset(h->connectors, 0, sizeof *h->connectors * h->n_connectors);
+        connector_t *c = NULL;
+        for (int i = 0; i < h->n_connectors; ++i) {
+            c = &h->connectors[i];
+            c->description = &h->description->connector_descriptions[i];
+            // reset pin highlighting
+            for (int k = 0; k < c->description->n_pins; ++k) {
+                c->description->pins[k].is_highlighted = 0;
+            }
+            create_connector(state, c);
+        }
+
+        // reset wire highlighting
+        for (int i = 0; i < h->description->n_wire_descriptions; ++i) {
+            h->description->wire_descriptions[i].is_highlighted = 0;
+        }
+
     }
 
-    // reset wire highlighting
-    wire_description_t *wd = NULL;
-    for (int i = 0; i < d->n_wire_descriptions; ++i) {
-        wd = &d->wire_descriptions[i];
-        wd->is_highlighted = 0;
-    }
-
-
-    return h;
+    return 0;
 }
 
-void free_harness(harness_t *h)
+void free_harnesses(program_state_t *state)
 {
-    free(h->connectors);
-    free(h);
-    h = NULL;
+    harness_t *h = NULL;
+    for (int i = 0; i < state->n_harnesses; ++i) {
+        h = &state->harnesses[i];
+        free(h->connectors);
+    }
+    free(state->harnesses);
+
 }
 
 Color get_color_from_string(const char *str)
@@ -940,12 +970,15 @@ int load_fonts(program_state_t *state)
     return 0;
 }
 
-int draw_text(program_state_t *state, Font font, char *text, Vector2 position, int font_spacing, Color default_color, Color highlighed_color, int force_highlight, int hidden)
+int draw_text(program_state_t *state, Font font, char *text, Vector2 position, int font_spacing, Color default_color, Color highlighed_color, int force_highlight, int hidden, int *is_under_pointer)
 {
     Vector2 text_size = MeasureTextEx(font, text, font.baseSize, font_spacing);
     Rectangle text_box = (Rectangle){position.x, position.y, text_size.x, text_size.y};
     Color color = default_color;
     int highlighted = CheckCollisionPointRec(state->mouse_position, text_box);
+    if (is_under_pointer != NULL) {
+        *is_under_pointer = highlighted;
+    }
     if (force_highlight) {
         highlighted = 1;
     }
@@ -1166,14 +1199,14 @@ connector_description_t *add_connector_description(harness_description_t *h, con
 
 void free_harness_descriptions(program_state_t *state)
 {
-    harness_description_t *h = NULL;
+    harness_description_t *hd = NULL;
     for (int i = 0; i < state->n_harnesses; ++i) {
-        h = &state->harness_descriptions[i];
-        for (int j = 0; j < h->n_connector_descriptions; ++j) {
-            free_connector_description(&h->connector_descriptions[j]);
+        hd = &state->harness_descriptions[i];
+        for (int j = 0; j < hd->n_connector_descriptions; ++j) {
+            free_connector_description(&hd->connector_descriptions[j]);
         }
-        free(h->connector_descriptions);
-        free(h->wire_descriptions);
+        free(hd->connector_descriptions);
+        free(hd->wire_descriptions);
     }
     free(state->harness_descriptions);
     state->harness_descriptions = NULL;
@@ -1193,3 +1226,57 @@ int export_template(int dark_background)
 
     return export_status;
 }
+
+void try_to_delete_wire(program_state_t *state)
+{
+    // Is a pin under the mouse pointer?
+
+    connector_t *c = NULL;
+    connector_description_t *cd = NULL;
+    wire_description_t *wd = NULL;
+    pin_t *p = NULL;
+    int yoff = 0;
+    int xoff = 0;
+
+    harness_t *h = &state->harnesses[state->harness_index];
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    int n_wires = hd->n_wire_descriptions;
+    for (int j = 0; j < hd->n_connector_descriptions; ++j) {
+        cd = &hd->connector_descriptions[j];
+        for (int k = 0; k < cd->n_pins; ++k) {
+            p = &cd->pins[k];
+            if (p->is_under_pointer) {
+                // Delete all wires connected to this pin
+                for (int l = n_wires - 1; l >= 0; --l) {
+                    wd = &hd->wire_descriptions[l];
+                    if ((cd->number == wd->c1 && p->number == wd->c1_pin) || (cd->number == wd->c2 && p->number == wd->c2_pin)) {
+                        hd->changed = 1;
+                        if (l < n_wires - 1) {
+                            memmove(wd, &hd->wire_descriptions[l + 1], sizeof *wd * (n_wires - 1 - l));
+                            memset(&hd->wire_descriptions[n_wires - 1], 0, sizeof *wd);
+                        }
+                        --n_wires;
+                    }
+                }
+                if (n_wires < hd->n_wire_descriptions) {
+                    hd->n_wire_descriptions = n_wires;
+                    if (n_wires > 0) {
+                        void *mem = realloc(hd->wire_descriptions, sizeof *hd->wire_descriptions * hd->n_wire_descriptions);
+                        if (mem == NULL) {
+                            fprintf(stderr, "Error reallocating memory\n");
+                        }
+                        hd->wire_descriptions = mem;
+                    } else {
+                        free(hd->wire_descriptions);
+                        hd->wire_descriptions = NULL;
+                    }
+                }
+                // Handled this pin
+                p->is_under_pointer = 0;
+            }
+        }
+    }
+
+    return;
+}
+    
