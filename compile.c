@@ -44,8 +44,7 @@ gcc harness.c -o harness\
  -framework GLUT \
  -framework OpenGL \
  -lraylib \
- -g";
- // -O3";
+ -O3";
     result = system(compilerCommand);
     if (result != 0) {
         fprintf(stdout, "Unable to compile program\n");
