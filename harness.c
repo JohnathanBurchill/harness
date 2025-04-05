@@ -15,7 +15,6 @@
 #define CONNECTOR_SPACING_X 200
 #define CONNECTOR_SPACING_Y 30
 #define FILE_LINE_MAX_LEN 256
-#define DEFAULT_WIRE_COLOR "GRAY"
 #define DEFAULT_HIGHLIGHT_COLOR "DARKGOLD"
 #define DEFAULT_FOREGROUND_COLOR_LIGHT "BLACK"
 #define DEFAULT_BACKGROUND_COLOR_LIGHT "RAYWHITE"
@@ -38,7 +37,7 @@ typedef struct wire_description {
     int c1_pin;
     int c2;
     int c2_pin;
-    Color color;
+    char *colour;
     float thickness;
     float straight_fraction;
     char *gauge;
@@ -63,6 +62,7 @@ typedef struct harness_description {
     char *default_wire_length;
     // TODO allow pin overrides of the wire gauge
     char *default_wire_gauge;
+    char *default_wire_colour;
     int n_connector_descriptions;
     connector_description_t *connector_descriptions;
     int n_wire_descriptions;
@@ -93,6 +93,7 @@ typedef struct harness {
 } harness_t;
 
 typedef struct program_state {
+    const char *harness_filename;
     harness_description_t *harness_descriptions;
     int n_harnesses;
     Font title_font;
@@ -111,7 +112,7 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
 void draw_harness(program_state_t *state, harness_t *h);
 float text_width(const char *str, Font font, int font_spacing);
 int update_max_string(char *max_str, const char *str);
-void parse_harness_description(program_state_t *state, const char *filename);
+void parse_harness_description(program_state_t *state);
 int parse_harness_properties(char *harness_properties, harness_description_t *h);
 void parse_connector_header(char *header, connector_description_t *c);
 int parse_pin_entry(char *pin_entry, connector_description_t *c);
@@ -125,17 +126,42 @@ int load_fonts(program_state_t *state);
 int draw_text(program_state_t *state, Font font, char *text, Vector2 position, int font_spacing, Color default_color, Color highlighed_color, int force_highlight, int hidden);
 char *read_line(char *ln, size_t len, FILE *fp);
 void adjust_zoom(program_state_t *state, float amount);
+int generate_boilerplate_harness_description(const char *filename, harness_description_t *h);
+int export_harness_description(program_state_t *state);
+harness_description_t *make_harness_description_template(void);
+connector_description_t *add_connector_description(harness_description_t *h, const char *name, const char *type, const char *mate, int n_pins);
+void free_harness_descriptions(program_state_t *state);
+int export_template(int dark_background);
 
 int main(int argc, char **argv)
 {
+    int n_opts = 0;
+    for (int i = 0; i < argc; ++i) {
+        if (strcmp("--make-template", argv[i]) == 0) {
+            int export_status = export_template(0);
+            if (export_status != 0) {
+                fprintf(stderr, "Error exporting harness description template.\n");
+            }
+            fprintf(stdout, "Exported harness description template.\n");
+            return export_status;
+        } else if (strcmp("--help", argv[i]) == 0) {
+            fprintf(stdout, "USAGE: read the source code, try to remember, guess, or disassemble\n");
+            return 0;
+        } else if (strncmp("--", argv[i], 2) == 0) {
+            fprintf(stderr, "What does '%s' mean?\n", argv[i]);
+            return EXIT_FAILURE;
+        }
+
+    }
     if (argc != 2) {
-        fprintf(stderr, "usage: %s <harness_definition_filename>\n", argv[0]);
+        fprintf(stderr, "USAGE: read the source code, try to remember, guess, or disassemble\n");
         return EXIT_FAILURE;
     }
 
     program_state_t state = {0};
     state.zoom_level = 1.0;
-    parse_harness_description(&state, argv[1]);
+    state.harness_filename = argv[1];
+    parse_harness_description(&state);
     if (state.n_harnesses == 0) {
         fprintf(stderr, "Error loading harness descriptions from %s\n", argv[1]);
         return EXIT_FAILURE;
@@ -167,6 +193,8 @@ int main(int argc, char **argv)
 
     int key = 0;
     GetMouseDelta();
+
+    int export_status = 0;
 
     while (running) {
         state.mouse_position = GetMousePosition();
@@ -213,15 +241,29 @@ int main(int argc, char **argv)
                 case KEY_BACKSPACE:
                     state.draw_offset = (Vector2){DEFAULT_DRAW_OFFSET_X, DEFAULT_DRAW_OFFSET_Y};
                     break;
+                case KEY_S:
+                    if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) {
+                        export_status = export_harness_description(&state);
+                        if (export_status != 0) {
+                            fprintf(stderr, "Error saving harness description.\n");
+                        }
+                    }
+                    break;
+                case KEY_N:
+                    if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) {
+                        export_status = export_template(state.dark_background);
+                        if (export_status != 0) {
+                            fprintf(stderr, "Error exporting harness description template.\n");
+                        }
+                    }
+                    break;
                 default:
                     break;
             }
         }
     }
 
-    for (int i = 0; i < state.harness_descriptions->n_connector_descriptions; ++i) {
-        free_connector_description(&state.harness_descriptions->connector_descriptions[i]);
-    }
+    free_harness_descriptions(&state);
 
     return 0;
 }
@@ -238,7 +280,7 @@ void create_connector(program_state_t *state, connector_t *c)
     c->line_height = c->font.baseSize + 2;
     c->font_spacing = FONT_SPACING;
     c->max_letters = update_max_string(c->max_str, cd->name);
-    snprintf(c->typerow, LINE_MAX_LEN, "%s %s (%d pins)", cd->mate, cd->type, cd->n_pins);
+    snprintf(c->typerow, LINE_MAX_LEN, "%s %s (%d pins)", cd->type, cd->mate, cd->n_pins);
     c->max_letters = update_max_string(c->max_str, c->typerow);
     for (int i = 0; i < cd->n_pins; ++i) {
         c->max_pin_letters = update_max_string(c->max_pin_str, cd->pins[i].name);
@@ -450,7 +492,7 @@ void draw_harness(program_state_t *state, harness_t *h)
             outline_wire_thickness = wd->thickness + 4;
         }
         DrawSplineBezierCubic(points, 4, outline_wire_thickness * state->zoom_level, outline_wire_color);
-        DrawSplineBezierCubic(points, 4, wd->thickness * state->zoom_level, wd->color);
+        DrawSplineBezierCubic(points, 4, wd->thickness * state->zoom_level, get_color_from_string(wd->colour));
     }
 
     Vector2 title_size = MeasureTextEx(h->title_font, h->description->name, h->title_font.baseSize, h->title_font_spacing);
@@ -472,11 +514,11 @@ int update_max_string(char *max_str, const char *str)
     return (int)strlen(max_str);
 }
 
-void parse_harness_description(program_state_t *state, const char *filename)
+void parse_harness_description(program_state_t *state)
 {
-    FILE *fp = fopen(filename, "r");
+    FILE *fp = fopen(state->harness_filename, "r");
     if (fp == NULL) {
-        fprintf(stderr, "Unable to open %s\n", filename);
+        fprintf(stderr, "Unable to open %s\n", state->harness_filename);
         return;
     }
 
@@ -564,15 +606,22 @@ int parse_harness_properties(char *harness_properties, harness_description_t *h)
     void *mem = NULL;
     token = strsep(&string, ",");
     if (token == NULL) {
-        fprintf(stderr, "%s: expected <default_wire_length>,<default_wire_gauge>\n", h->name);
+        fprintf(stderr, "%s: expected <default_wire_length>,<default_wire_gauge>,<default_wire_colour>\n", h->name);
         return 1;
     }
     h->default_wire_length = strdup(token);
-    if (string == NULL || strlen(string) == 0) {
-        fprintf(stderr, "%s missing <default_wire_gauge>\n", h->name);
+    token = strsep(&string, ",");
+    if (token == NULL || strlen(token) == 0) {
+        fprintf(stderr, "%s: missing <default_wire_gauge>\n", h->name);
         return 1;
     }
-    h->default_wire_gauge = strdup(string);
+    h->default_wire_gauge = strdup(token);
+    token = strsep(&string, ",");
+    if (token == NULL || strlen(token) == 0) {
+        fprintf(stderr, "%s: missing <default_wire_colour>\n", h->name);
+        return 1;
+    }
+    h->default_wire_colour = strdup(token);
 
     free(tofree);
 
@@ -663,7 +712,7 @@ int parse_wire_entry(char *wiring, harness_description_t *h)
     w = &h->wire_descriptions[h->n_wire_descriptions - 1];
     memset(w, 0, sizeof *w);
 
-    w->color = get_color_from_string(DEFAULT_WIRE_COLOR);
+    w->colour = h->default_wire_colour;
     w->thickness = DEFAULT_WIRE_THICKNESS;
     w->straight_fraction = DEFAULT_WIRE_STRAIGHT_FRACTION;
     w->length = h->default_wire_length;
@@ -693,7 +742,7 @@ int parse_wire_entry(char *wiring, harness_description_t *h)
 
     token = strsep(&string, ",");
     if (token != NULL) {
-        w->color = get_color_from_string(token);
+        w->colour = strdup(token);
     }
 
     token = strsep(&string, ",");
@@ -792,6 +841,10 @@ void free_harness(harness_t *h)
 
 Color get_color_from_string(const char *str)
 {
+    if (str == NULL) {
+        return RED;
+    }
+
     // Raylib colours
     Color c = BLACK;
     if (strcmp("LIGHTGRAY", str) == 0) {
@@ -935,4 +988,208 @@ void adjust_zoom(program_state_t *state, float amount)
         state->zoom_level = MAXIMUM_ZOOM;
     }
 
+}
+
+int export_harness_description(program_state_t *state)
+{
+    FILE *fp = fopen(state->harness_filename, "w");
+    if (fp == NULL) {
+        fprintf(stderr, "Error opening %s for writing\n", state->harness_filename);
+        return 1;
+    }
+
+    harness_description_t *h = NULL;
+    connector_description_t *c = NULL;
+    pin_t *p = NULL;
+    wire_description_t *w = NULL;
+    fprintf(fp, "%sdark_background\n", state->dark_background ? "" : "#");
+    fprintf(fp, "# comments like this and empty lines are ignored\n");
+    fprintf(fp, "# Format: consists of a 3-line 'harness' header\n");
+    fprintf(fp, "# followed by one or more 'connector' descriptions\n");
+    fprintf(fp, "# and a single 'wiring' section. \n");
+    fprintf(fp, "\n");
+    fprintf(fp, "# The end of an enumerated list, such as a pin list, is denoted by '.' on a\n");
+    fprintf(fp, "# line by itself.\n");
+    fprintf(fp, "# Pins must appear in increasing order.\n");
+    for (int i = 0; i < state->n_harnesses; ++i) {
+        h = &state->harness_descriptions[0];
+        fprintf(fp, "\n");
+        fprintf(fp, "harness %d\n", i + 1);
+        fprintf(fp, "%s\n", h->name);
+        fprintf(fp, "%s,%s,%s\n", h->default_wire_length, h->default_wire_gauge, h->default_wire_colour);
+        fprintf(fp, "\n");
+        for (int j = 0; j < h->n_connector_descriptions; ++j) {
+            c = &h->connector_descriptions[j];
+            fprintf(fp, "connector %d\n", j + 1);
+            fprintf(fp, "# <name>,<type>,<mate>[,reversed]\n");
+            fprintf(fp, "%s,%s,%s%s\n", c->name, c->type, c->mate, c->mirror_lr ? ",reversed" : "");
+            for (int k = 0; k < c->n_pins; ++k) {
+                p = &c->pins[k];
+                fprintf(fp, "%d %s\n", p->number, p->name);
+            }
+            fprintf(fp, ".\n");
+            fprintf(fp, "\n");
+        }
+
+        fprintf(fp, "wiring\n");
+        fprintf(fp, "# <src_conn_#>,<src_pin_#>,<dst_conn_#>,<dst_pin_#>[,<wire_colour>][,<wire_thickness][,<wire_gauge>]\n");
+        for (int j = 0; j < h->n_wire_descriptions; ++j) {
+            w = &h->wire_descriptions[j];
+            fprintf(fp, "%d,%d,%d,%d", w->c1, w->c1_pin, w->c2, w->c2_pin);
+            if (strcmp(w->colour, h->default_wire_colour) != 0) {
+                fprintf(fp, ",%s", w->colour);
+                if (w->thickness != DEFAULT_WIRE_THICKNESS) {
+                    fprintf(fp, ",%g", w->thickness);
+                    if (strcmp(w->gauge, h->default_wire_gauge) != 0) {
+                        fprintf(fp, ",%s", w->gauge);
+                    }
+                }
+            }
+            fprintf(fp, "\n");
+        }
+        fprintf(fp, ".\n");
+    }
+
+    fclose(fp);
+    fflush(fp);
+
+    return 0;
+}
+
+harness_description_t *make_harness_description_template(void)
+{
+    harness_description_t *h = malloc(sizeof *h);
+    if (h == NULL) {
+        fprintf(stderr, "Error allocating memory\n");
+        return NULL;
+    }
+    memset(h, 0, sizeof *h);
+
+    h->name = strdup("<name>");
+    h->default_wire_length = strdup("30cm");
+    h->default_wire_gauge = strdup("26awg");
+    h->default_wire_colour = strdup("GRAY");
+
+    connector_description_t *c = add_connector_description(h, "J1", "header", "plug", 5);
+    if (c == NULL) {
+        return NULL;
+    }
+    c->pins[0].name = strdup("+5V");
+    c->pins[1].name = strdup("AGND");
+
+    c = add_connector_description(h, "J2", "header", "plug", 2);
+    if (c == NULL) {
+        return NULL;
+    }
+    c->pins[0].name = strdup("3V3");
+    c->pins[1].name = strdup("DGND");
+
+    c = add_connector_description(h, "J3", "DB9", "socket", 5);
+    if (c == NULL) {
+        return NULL;
+    }
+    c->mirror_lr = 1;
+    c->pins[0].name = strdup("+5V");
+    c->pins[1].name = strdup("+5V_RTN");
+    c->pins[2].name = strdup("NC");
+    c->pins[3].name = strdup("3V3");
+    c->pins[4].name = strdup("3V3_RTN");
+
+    h->n_wire_descriptions = 4;
+    wire_description_t *w = malloc(sizeof *w * h->n_wire_descriptions);
+    if (w == NULL) {
+        fprintf(stderr, "Error allocating memory\n");
+        return NULL;
+    }
+    h->wire_descriptions = w;
+    memset(w, 0, sizeof *w * h->n_wire_descriptions);
+    for (int i = 0; i < h->n_wire_descriptions; ++i) {
+        w[i].colour = strdup(h->default_wire_colour);
+        w[i].length = strdup(h->default_wire_length);
+        w[i].gauge = strdup(h->default_wire_gauge);
+        w[i].is_highlighted = 0;
+        w[i].straight_fraction = DEFAULT_WIRE_STRAIGHT_FRACTION;
+        w[i].thickness = DEFAULT_WIRE_THICKNESS;
+    }
+    w[0].c1 = 1;
+    w[0].c1_pin = 1;
+    w[0].c2 = 3;
+    w[0].c2_pin = 1;
+    w[0].colour = strdup("RED");
+    w[0].thickness = 4.0;
+    w[1].c1 = 1;
+    w[1].c1_pin = 2;
+    w[1].c2 = 3;
+    w[1].c2_pin = 2;
+    w[2].c1 = 2;
+    w[2].c1_pin = 1;
+    w[2].c2 = 3;
+    w[2].c2_pin = 4;
+    w[3].c1 = 2;
+    w[3].c1_pin = 2;
+    w[3].c2 = 3;
+    w[3].c2_pin = 5;
+
+    return h;
+
+}
+
+connector_description_t *add_connector_description(harness_description_t *h, const char *name, const char *type, const char *mate, int n_pins)
+{
+    void *mem = realloc(h->connector_descriptions, sizeof *h->connector_descriptions * (h->n_connector_descriptions + 1));
+    if (mem == NULL) {
+        fprintf(stderr, "Error allocating memory\n");
+        return NULL;
+    }
+    h->connector_descriptions = mem;
+    h->n_connector_descriptions++;
+
+    connector_description_t *c = &h->connector_descriptions[h->n_connector_descriptions - 1];
+    memset(c, 0, sizeof *c);
+    c->name = strdup(name);
+    c->number = h->n_connector_descriptions;
+    c->type = strdup(type);
+    c->mate = strdup(mate);
+    c->n_pins = n_pins;
+    c->pins = malloc(sizeof *c->pins * n_pins);
+    if (c->pins == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < n_pins; ++i) {
+        c->pins[i].name = strdup("NC");
+        c->pins[i].number = i + 1;
+        c->pins[i].is_highlighted = 0;
+    }
+
+    return c;
+}
+
+void free_harness_descriptions(program_state_t *state)
+{
+    harness_description_t *h = NULL;
+    for (int i = 0; i < state->n_harnesses; ++i) {
+        h = &state->harness_descriptions[i];
+        for (int j = 0; j < h->n_connector_descriptions; ++j) {
+            free_connector_description(&h->connector_descriptions[j]);
+        }
+        free(h->connector_descriptions);
+        free(h->wire_descriptions);
+    }
+    free(state->harness_descriptions);
+    state->harness_descriptions = NULL;
+    state->n_harnesses = 0;
+}
+
+int export_template(int dark_background) 
+{
+    program_state_t template_state = {0};
+    template_state.dark_background = dark_background;
+
+    template_state.harness_filename = "template_harness.txt";
+    template_state.harness_descriptions = make_harness_description_template();
+    template_state.n_harnesses = 1;
+    int export_status = export_harness_description(&template_state);
+    free_harness_descriptions(&template_state);
+
+    return export_status;
 }
