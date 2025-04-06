@@ -4,7 +4,7 @@
 
 #include <raylib.h>
 
-#define FONT_NAME "ComicShannsMonoNerdFontMono-Bold.ttf"
+#define FONT_NAME "Replace this string with a TTF filename from ${HOME}/bin recompile"
 #define FONT_SIZE 14
 #define FONT_SPACING 2
 #define TITLE_FONT_SCALE 1.25
@@ -151,7 +151,6 @@ void reset_pin_under_pointer_states(program_state_t *state);
 
 int main(int argc, char **argv)
 {
-    int n_opts = 0;
     for (int i = 0; i < argc; ++i) {
         if (strcmp("--make-template", argv[i]) == 0) {
             int export_status = export_template(0);
