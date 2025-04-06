@@ -1,6 +1,6 @@
 # simple_harness
 
-Wiring harness editor and view in C. Based on [raylib](https://github.com/raysan5/raylib/).
+Wiring harness editor and viewer in C. Based on [raylib](https://github.com/raysan5/raylib/).
 
 ![A harness demo gif](Demo.gif)
 
