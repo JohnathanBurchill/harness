@@ -148,6 +148,9 @@ void try_to_delete_wire(program_state_t *state);
 void try_to_add_wire(program_state_t *state);
 void draw_pin_to_pointer(program_state_t *state);
 void reset_pin_under_pointer_states(program_state_t *state);
+void change_wire_colour(program_state_t *state, int direction);
+char *next_colour(const char *str);
+char *previous_colour(const char *str);
 
 int main(int argc, char **argv)
 {
@@ -288,6 +291,12 @@ int main(int argc, char **argv)
                     break;
                 case KEY_D:
                     try_to_delete_wire(&state);
+                    break;
+                case KEY_ONE:
+                    change_wire_colour(&state, 0);
+                    break;
+                case KEY_TWO:
+                    change_wire_colour(&state, 1);
                     break;
                 default:
                     break;
@@ -924,7 +933,23 @@ Color get_color_from_string(const char *str)
 
     // Raylib colours
     Color c = BLACK;
-    if (strcmp("LIGHTGRAY", str) == 0) {
+    if (strcmp("RED", str) == 0) {
+        c = RED;
+    } else if (strcmp("MAROON", str) == 0) {
+        c = MAROON;
+    } else if (strcmp("BLACK", str) == 0) {
+        c = BLACK;
+    } else if (strcmp("WHITE", str) == 0) {
+        c = WHITE;
+    } else if (strcmp("BLUE", str) == 0) {
+        c = BLUE;
+    } else if (strcmp("DARKBLUE", str) == 0) {
+        c = DARKBLUE;
+    } else if (strcmp("GREEN", str) == 0) {
+        c = GREEN;
+    } else if (strcmp("DARKGREEN", str) == 0) {
+        c = DARKGREEN;
+    } else if (strcmp("LIGHTGRAY", str) == 0) {
         c = LIGHTGRAY;
     } else if (strcmp("GRAY", str) == 0) {
         c = GRAY;
@@ -942,22 +967,10 @@ Color get_color_from_string(const char *str)
         c = ORANGE;
     } else if (strcmp("PINK", str) == 0) {
         c = PINK;
-    } else if (strcmp("RED", str) == 0) {
-        c = RED;
-    } else if (strcmp("MAROON", str) == 0) {
-        c = MAROON;
-    } else if (strcmp("GREEN", str) == 0) {
-        c = GREEN;
     } else if (strcmp("LIME", str) == 0) {
         c = LIME;
-    } else if (strcmp("DARKGREEN" , str) == 0) {
-        c = DARKGREEN;
     } else if (strcmp("SKYBLUE", str) == 0) {
         c = SKYBLUE;
-    } else if (strcmp("BLUE", str) == 0) {
-        c = BLUE;
-    } else if (strcmp("DARKBLUE", str) == 0) {
-        c = DARKBLUE;
     } else if (strcmp("PURPLE", str) == 0) {
         c = PURPLE;
     } else if (strcmp("VIOLET", str) == 0) {
@@ -968,10 +981,8 @@ Color get_color_from_string(const char *str)
         c = BEIGE;
     } else if (strcmp("BROWN", str) == 0) {
         c = BROWN;
-    } else if (strcmp("DARKBROWN" , str) == 0) {
+    } else if (strcmp("DARKBROWN", str) == 0) {
         c = DARKBROWN;
-    } else if (strcmp("WHITE", str) == 0) {
-        c = WHITE;
     } else if (strcmp("BLANK", str) == 0) {
         c = BLANK;
     } else if (strcmp("MAGENTA", str) == 0) {
@@ -1375,3 +1386,168 @@ void reset_pin_under_pointer_states(program_state_t *state)
     return;
 }
 
+void change_wire_colour(program_state_t *state, int direction)
+{
+    connector_t *c = NULL;
+    connector_description_t *cd = NULL;
+    wire_description_t *wd = NULL;
+    pin_t *p = NULL;
+    int yoff = 0;
+    int xoff = 0;
+
+    harness_t *h = &state->harnesses[state->harness_index];
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    int n_wires = hd->n_wire_descriptions;
+    for (int j = 0; j < hd->n_connector_descriptions; ++j) {
+        cd = &hd->connector_descriptions[j];
+        for (int k = 0; k < cd->n_pins; ++k) {
+            p = &cd->pins[k];
+            if (p->is_under_pointer) {
+                // Delete all wires connected to this pin
+                for (int l = n_wires - 1; l >= 0; --l) {
+                    wd = &hd->wire_descriptions[l];
+                    if ((cd->number == wd->c1 && p->number == wd->c1_pin) || (cd->number == wd->c2 && p->number == wd->c2_pin)) {
+                        if (direction == 1) {
+                            wd->colour = next_colour(wd->colour);
+                        } else {
+                            wd->colour = previous_colour(wd->colour);
+                        }
+                        break;
+                    }
+                }
+                // Handled this pin
+                p->is_under_pointer = 0;
+            }
+        }
+    }
+
+    return;
+}
+
+char *next_colour(const char *str)
+{
+    char * c = "BLACK";
+    if (strcmp("GRAY", str) == 0) {
+        c = "RED";
+    } else if (strcmp("RED", str) == 0) {
+        c = "MAROON";
+    } else if (strcmp("MAROON", str) == 0) {
+        c = "BLACK";
+    } else if (strcmp("BLACK", str) == 0) {
+        c = "WHITE";
+    } else if (strcmp("WHITE", str) == 0) {
+        c = "BLUE";
+    } else if (strcmp("BLUE", str) == 0) {
+        c = "DARKBLUE";
+    } else if (strcmp("DARKBLUE", str) == 0) {
+        c = "GREEN";
+    } else if (strcmp("GREEN", str) == 0) {
+        c = "DARKGREEN";
+    } else if (strcmp("DARKGREEN", str) == 0) {
+        c = "LIGHTGRAY";
+    } else if (strcmp("LIGHTGRAY", str) == 0) {
+        c = "DARKGRAY";
+    } else if (strcmp("DARKGRAY", str) == 0) {
+        c = "YELLOW";
+    } else if (strcmp("YELLOW", str) == 0) {
+        c = "GOLD";
+    } else if (strcmp("GOLD", str) == 0) {
+        c = "DARKGOLD";
+    } else if (strcmp("DARKGOLD", str) == 0) {
+        c = "DARKERGOLD"; 
+    } else if (strcmp("DARKERGOLD", str) == 0) {
+        c = "ORANGE"; 
+    } else if (strcmp("ORANGE", str) == 0) {
+        c = "PINK";
+    } else if (strcmp("PINK", str) == 0) {
+        c = "LIME";
+    } else if (strcmp("LIME", str) == 0) {
+        c = "SKYBLUE";
+    } else if (strcmp("SKYBLUE", str) == 0) {
+        c = "PURPLE";
+    } else if (strcmp("PURPLE", str) == 0) {
+        c = "VIOLET";
+    } else if (strcmp("VIOLET", str) == 0) {
+        c = "DARKPURPLE";
+    } else if (strcmp("DARKPURPLE", str) == 0) {
+        c = "BEIGE";
+    } else if (strcmp("BEIGE", str) == 0) {
+        c = "BROWN";
+    } else if (strcmp("BROWN", str) == 0) {
+        c = "DARKBROWN";
+    } else if (strcmp("DARKBROWN", str) == 0) {
+        c = "BLANK";
+    } else if (strcmp("BLANK", str) == 0) {
+        c = "MAGENTA";
+    } else if (strcmp("MAGENTA", str) == 0) {
+        c = "RAYWHITE";
+    } else if (strcmp("RAYWHITE", str) == 0) {
+        c = "GRAY";
+    } 
+
+    return strdup(c);
+}
+
+char *previous_colour(const char *str)
+{
+    char * c = "BLACK";
+    if (strcmp("GRAY", str) == 0) {
+        c = "RAYWHITE";
+    } else if (strcmp("RED", str) == 0) {
+        c = "GRAY";
+    } else if (strcmp("MAROON", str) == 0) {
+        c = "RED";
+    } else if (strcmp("BLACK", str) == 0) {
+        c = "MAROON";
+    } else if (strcmp("WHITE", str) == 0) {
+        c = "BLACK";
+    } else if (strcmp("BLUE", str) == 0) {
+        c = "WHITE";
+    } else if (strcmp("DARKBLUE", str) == 0) {
+        c = "BLUE";
+    } else if (strcmp("GREEN", str) == 0) {
+        c = "DARKBLUE";
+    } else if (strcmp("DARKGREEN", str) == 0) {
+        c = "GREEN";
+    } else if (strcmp("LIGHTGRAY", str) == 0) {
+        c = "DARKGREEN";
+    } else if (strcmp("DARKGRAY", str) == 0) {
+        c = "LIGHTGRAY";
+    } else if (strcmp("YELLOW", str) == 0) {
+        c = "DARKGRAY";
+    } else if (strcmp("GOLD", str) == 0) {
+        c = "YELLOW";
+    } else if (strcmp("DARKGOLD", str) == 0) {
+        c = "GOLD"; 
+    } else if (strcmp("DARKERGOLD", str) == 0) {
+        c = "DARKGOLD"; 
+    } else if (strcmp("ORANGE", str) == 0) {
+        c = "DARKERGOLD";
+    } else if (strcmp("PINK", str) == 0) {
+        c = "ORANGE";
+    } else if (strcmp("LIME", str) == 0) {
+        c = "PINK";
+    } else if (strcmp("SKYBLUE", str) == 0) {
+        c = "LIME";
+    } else if (strcmp("PURPLE", str) == 0) {
+        c = "SKYBLUE";
+    } else if (strcmp("VIOLET", str) == 0) {
+        c = "PURPLE";
+    } else if (strcmp("DARKPURPLE", str) == 0) {
+        c = "VIOLET";
+    } else if (strcmp("BEIGE", str) == 0) {
+        c = "DARKPURPLE";
+    } else if (strcmp("BROWN", str) == 0) {
+        c = "BEIGE";
+    } else if (strcmp("DARKBROWN", str) == 0) {
+        c = "BROWN";
+    } else if (strcmp("BLANK", str) == 0) {
+        c = "DARKBROWN";
+    } else if (strcmp("MAGENTA", str) == 0) {
+        c = "BLANK";
+    } else if (strcmp("RAYWHITE", str) == 0) {
+        c = "MAGENTA";
+    } 
+
+    return strdup(c);
+}
