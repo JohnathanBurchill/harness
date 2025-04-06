@@ -6,7 +6,7 @@ Wiring harness editor and view in C. Based on [raylib](https://github.com/raysan
 
 Edit simple_harness.c to point to a TTF font in your ``$HOME/bin`` directory and compile using your favourite C compiler.
 
-Harness connectors and wiring are documented in text files. See ``test_harness.txt`` for an example.
+Harness connectors and wiring are expressed in ASCII text files.
 
 Uses ``strsep(...)`` from ``<string.h>``; you might have to implement this yourself on some OS's.
 
