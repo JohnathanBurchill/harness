@@ -16,7 +16,7 @@ void compile_usage(void)
 
 int main(int argc, char **argv)
 {
-    char *name = "harness";
+    char *name = "simple_harness";
     int result = 0;
 	// Run 'compile me' for example, to compile this first
 	if (argc == 2) {
@@ -37,7 +37,7 @@ int main(int argc, char **argv)
 	//  compile the tracing program
     const char *compilerCommand = "\
 MACOSX_DEPLOYMENT_TARGET=14.6 \
-gcc harness.c -o harness\
+gcc simple_harness.c -o simple_harness\
  -framework CoreVideo \
  -framework IOKit \
  -framework Cocoa \
