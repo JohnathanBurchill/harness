@@ -129,6 +129,7 @@ int parse_harness_properties(char *harness_properties, harness_description_t *h)
 void parse_connector_header(char *header, connector_description_t *c);
 int parse_pin_entry(char *pin_entry, connector_description_t *c);
 int parse_wire_entry(char *wiring, harness_description_t *h);
+int pin_matches(wire_description_t *wd, connector_description_t *cd, pin_t *p);
 void free_connector_description(connector_description_t *t);
 void remove_newline(char *str);
 int create_harnesses(program_state_t *state);
@@ -151,6 +152,7 @@ void reset_pin_under_pointer_states(program_state_t *state);
 void change_wire_colour(program_state_t *state, int direction);
 char *next_colour(const char *str);
 char *previous_colour(const char *str);
+void change_wire_thickness(program_state_t *state, float delat_amount);
 
 int main(int argc, char **argv)
 {
@@ -297,6 +299,12 @@ int main(int argc, char **argv)
                     break;
                 case KEY_TWO:
                     change_wire_colour(&state, 1);
+                    break;
+                case KEY_THREE:
+                    change_wire_thickness(&state, -0.5);
+                    break;
+                case KEY_FOUR:
+                    change_wire_thickness(&state, 0.5);
                     break;
                 default:
                     break;
@@ -841,6 +849,11 @@ int parse_wire_entry(char *wiring, harness_description_t *h)
     return 0;
 }
 
+int pin_matches(wire_description_t *wd, connector_description_t *cd, pin_t *p)
+{
+    return ((cd->number == wd->c1 && p->number == wd->c1_pin) || (cd->number == wd->c2 && p->number == wd->c2_pin)) ;
+}
+
 void free_connector_description(connector_description_t *t)
 {
     free(t->name);
@@ -1272,7 +1285,7 @@ void try_to_delete_wire(program_state_t *state)
                 // Delete all wires connected to this pin
                 for (int l = n_wires - 1; l >= 0; --l) {
                     wd = &hd->wire_descriptions[l];
-                    if ((cd->number == wd->c1 && p->number == wd->c1_pin) || (cd->number == wd->c2 && p->number == wd->c2_pin)) {
+                    if (pin_matches(wd, cd, p)) {
                         hd->changed = 1;
                         if (l < n_wires - 1) {
                             memmove(wd, &hd->wire_descriptions[l + 1], sizeof *wd * (n_wires - 1 - l));
@@ -1403,10 +1416,9 @@ void change_wire_colour(program_state_t *state, int direction)
         for (int k = 0; k < cd->n_pins; ++k) {
             p = &cd->pins[k];
             if (p->is_under_pointer) {
-                // Delete all wires connected to this pin
                 for (int l = n_wires - 1; l >= 0; --l) {
                     wd = &hd->wire_descriptions[l];
-                    if ((cd->number == wd->c1 && p->number == wd->c1_pin) || (cd->number == wd->c2 && p->number == wd->c2_pin)) {
+                    if (pin_matches(wd, cd, p)) {
                         if (direction == 1) {
                             wd->colour = next_colour(wd->colour);
                         } else {
@@ -1550,4 +1562,40 @@ char *previous_colour(const char *str)
     } 
 
     return strdup(c);
+}
+
+void change_wire_thickness(program_state_t *state, float delat_amount)
+{
+    connector_t *c = NULL;
+    connector_description_t *cd = NULL;
+    wire_description_t *wd = NULL;
+    pin_t *p = NULL;
+    int yoff = 0;
+    int xoff = 0;
+
+    harness_t *h = &state->harnesses[state->harness_index];
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    int n_wires = hd->n_wire_descriptions;
+    for (int j = 0; j < hd->n_connector_descriptions; ++j) {
+        cd = &hd->connector_descriptions[j];
+        for (int k = 0; k < cd->n_pins; ++k) {
+            p = &cd->pins[k];
+            if (p->is_under_pointer) {
+                for (int l = n_wires - 1; l >= 0; --l) {
+                    wd = &hd->wire_descriptions[l];
+                    if (pin_matches(wd, cd, p)) {
+                        wd->thickness += delat_amount;
+                        if (wd->thickness < 0.5) {
+                            wd->thickness = 0.5;
+                        }
+                        break;
+                    }
+                }
+                // Handled this pin
+                p->is_under_pointer = 0;
+            }
+        }
+    }
+
+    return;
 }
