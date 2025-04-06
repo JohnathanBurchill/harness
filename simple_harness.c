@@ -4,7 +4,7 @@
 
 #include <raylib.h>
 
-#define FONT_NAME "Replace this string with a TTF filename from ${HOME}/bin and recompile"
+#define FONT_NAME "Replace this string with a TTF filename from ${HOME}/bin and compile"
 #define FONT_SIZE 14
 #define FONT_SPACING 2
 #define TITLE_FONT_SCALE 1.25
