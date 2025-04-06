@@ -108,6 +108,13 @@ typedef struct program_state {
     Color foreground_color;
     Color background_color;
     float zoom_level;
+    int n_pins_under_pointer;
+    connector_description_t *c1_under_pointer;
+    pin_t *p1_under_pointer;
+    connector_description_t *c2_under_pointer;
+    pin_t *p2_under_pointer;
+    Vector2 wire_drawing_first_end;
+    Vector2 wire_drawing_second_end;
 
 } program_state_t;
 
@@ -138,6 +145,9 @@ connector_description_t *add_connector_description(harness_description_t *h, con
 void free_harness_descriptions(program_state_t *state);
 int export_template(int dark_background);
 void try_to_delete_wire(program_state_t *state);
+void try_to_add_wire(program_state_t *state);
+void draw_pin_to_pointer(program_state_t *state);
+void reset_pin_under_pointer_states(program_state_t *state);
 
 int main(int argc, char **argv)
 {
@@ -208,6 +218,12 @@ int main(int argc, char **argv)
             draw_harness(&state);
         EndDrawing();
 
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && state.n_pins_under_pointer > 0) {
+            draw_pin_to_pointer(&state);
+        } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && state.n_pins_under_pointer == 2) {
+            try_to_add_wire(&state);
+            reset_pin_under_pointer_states(&state);
+        } 
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
             Vector2 mouse_movement = GetMouseDelta();
             state.draw_offset.x += mouse_movement.x;
@@ -330,6 +346,8 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
 
     int yoff = c->outline.y + CONNECTOR_OUTLINE_GAP;
     int xoff = c->outline.x + c->outline.width / 2 - text_width(cd->name, c->font, c->font_spacing) / 2;
+    int xoff1 = 0;
+    int yoff1 = 0;
     Color highlighted_color = get_color_from_string(DEFAULT_HIGHLIGHT_COLOR);
     float line_thickness = 1.5;
     c->is_highlighted = CheckCollisionPointRec(state->mouse_position, c->outline);
@@ -377,7 +395,30 @@ int draw_connector(program_state_t *state, connector_t *c, Vector2 position, int
                 }
             }
         }
+        Vector2 pin_line_size = MeasureTextEx(c->font, pin_line, c->font.baseSize, c->font_spacing);
         p->is_highlighted = draw_text(state, c->font, pin_line, (Vector2){xoff, yoff}, c->font_spacing, state->foreground_color, highlighted_color, p->is_highlighted, hidden, &p->is_under_pointer);
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && p->is_under_pointer) {
+            xoff1 = xoff;
+            if (!cd->mirror_lr)  {
+                xoff1 += pin_line_size.x;
+            }
+            yoff1 = yoff + pin_line_size.y / 2.0;
+            if (state->n_pins_under_pointer == 0) {
+                state->wire_drawing_first_end = (Vector2){xoff1, yoff1};
+                state->c1_under_pointer = cd;
+                state->p1_under_pointer = p;
+                state->n_pins_under_pointer = 1;
+            } else if (state->n_pins_under_pointer == 1 && p != state->p1_under_pointer) {
+                state->wire_drawing_second_end = (Vector2){xoff1, yoff1};
+                state->c2_under_pointer = cd;
+                state->p2_under_pointer = p;
+                state->n_pins_under_pointer = 2;
+            } else if (state->n_pins_under_pointer == 2 && p != state->p2_under_pointer) {
+                state->wire_drawing_second_end = (Vector2){xoff1, yoff1};
+                state->c2_under_pointer = cd;
+                state->p2_under_pointer = p;
+            }
+        }
         if (p->is_highlighted != old_highlighting) {
             highlighting_updated = 1;
         }
@@ -503,13 +544,20 @@ void draw_harness(program_state_t *state)
         if (!cright->description->mirror_lr) {
             x_right += cright->outline.width;
         }
-        float harness_x_span = x_right - x_left;
         i_left = wd->c1_pin;
         i_right = wd->c2_pin;
         y_left = y0_left + (float)(i_left * cleft->line_height);
         y_right = y0_right + (float)(i_right * cright->line_height);
-        dx = wd->straight_fraction * harness_x_span;
+        dx = wd->straight_fraction * (float)CONNECTOR_SPACING_X * state->zoom_level;
         Vector2 points[] = {{x_left, y_left}, {x_left + dx, y_left}, {x_right - dx, y_right}, {x_right, y_right}};
+        if (x_right == x_left) {
+            // Pins are on the same end of the harness
+            if (cleft->description->mirror_lr) {
+                points[1].x -= 2 * dx;
+            } else {
+                points[2].x += 2 * dx;
+            }
+        }
         Color outline_wire_color = state->foreground_color;
         float outline_wire_thickness = wd->thickness + 0.5;
         // Draw wire
@@ -1128,41 +1176,6 @@ harness_description_t *make_harness_description_template(void)
     c->pins[3].name = strdup("3V3");
     c->pins[4].name = strdup("3V3_RTN");
 
-    h->n_wire_descriptions = 4;
-    wire_description_t *w = malloc(sizeof *w * h->n_wire_descriptions);
-    if (w == NULL) {
-        fprintf(stderr, "Error allocating memory\n");
-        return NULL;
-    }
-    h->wire_descriptions = w;
-    memset(w, 0, sizeof *w * h->n_wire_descriptions);
-    for (int i = 0; i < h->n_wire_descriptions; ++i) {
-        w[i].colour = strdup(h->default_wire_colour);
-        w[i].length = strdup(h->default_wire_length);
-        w[i].gauge = strdup(h->default_wire_gauge);
-        w[i].is_highlighted = 0;
-        w[i].straight_fraction = DEFAULT_WIRE_STRAIGHT_FRACTION;
-        w[i].thickness = DEFAULT_WIRE_THICKNESS;
-    }
-    w[0].c1 = 1;
-    w[0].c1_pin = 1;
-    w[0].c2 = 3;
-    w[0].c2_pin = 1;
-    w[0].colour = strdup("RED");
-    w[0].thickness = 4.0;
-    w[1].c1 = 1;
-    w[1].c1_pin = 2;
-    w[1].c2 = 3;
-    w[1].c2_pin = 2;
-    w[2].c1 = 2;
-    w[2].c1_pin = 1;
-    w[2].c2 = 3;
-    w[2].c2_pin = 4;
-    w[3].c1 = 2;
-    w[3].c1_pin = 2;
-    w[3].c2 = 3;
-    w[3].c2_pin = 5;
-
     return h;
 
 }
@@ -1279,4 +1292,87 @@ void try_to_delete_wire(program_state_t *state)
 
     return;
 }
+
+void try_to_add_wire(program_state_t *state)
+{
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    wire_description_t *wd = NULL;
+    if (state->p1_under_pointer == NULL || state->p2_under_pointer == NULL) {
+        return;
+    }
+    int c1 = state->c1_under_pointer->number;
+    int p1 = state->p1_under_pointer->number;
+    int c2 = state->c2_under_pointer->number;
+    int p2 = state->p2_under_pointer->number;
+    int wire_exists = 0;
+    for (int i = 0; i < hd->n_wire_descriptions; ++i) {
+        wd = &hd->wire_descriptions[i];
+        if ((((wd->c1 == c1 && wd->c1_pin == p1) && (wd->c2 == c2 && wd->c2_pin == p2)) || ((wd->c1 == c2 && wd->c1_pin == p2) && (wd->c2 == c1 && wd->c2_pin == p1)))) {
+            wire_exists = 1;
+        }
+    }
+    if (!wire_exists) {
+        void *mem = realloc(hd->wire_descriptions, sizeof *hd->wire_descriptions * (hd->n_wire_descriptions + 1));
+        if (mem == NULL) {
+            fprintf(stderr, "Error allocating memory\n");
+            return;
+        }
+        hd->wire_descriptions = mem;
+        hd->n_wire_descriptions++;
+        wd = &hd->wire_descriptions[hd->n_wire_descriptions - 1];
+        wd->c1 = c1;
+        wd->c1_pin = p1;
+        wd->c2 = c2;
+        wd->c2_pin = p2;
+        wd->colour = hd->default_wire_colour;
+        wd->length = hd->default_wire_length;
+        wd->gauge = hd->default_wire_gauge;
+        wd->thickness = DEFAULT_WIRE_THICKNESS;
+        wd->straight_fraction = DEFAULT_WIRE_STRAIGHT_FRACTION;
+        wd->is_highlighted = 0;
+    }
+    reset_pin_under_pointer_states(state);
+}
     
+void draw_pin_to_pointer(program_state_t *state)
+{
+    float harness_x_span = state->mouse_position.x - state->wire_drawing_first_end.x;
+    float dx = DEFAULT_WIRE_STRAIGHT_FRACTION * harness_x_span;
+    Vector2 offset1 = {state->wire_drawing_first_end.x + dx, state->wire_drawing_first_end.y};
+    Vector2 offset2 = {state->mouse_position.x - dx, state->mouse_position.y};
+    Vector2 points[] = {state->wire_drawing_first_end, offset1, offset2, state->mouse_position};
+    DrawSplineBezierCubic(points, 4, (DEFAULT_WIRE_THICKNESS + 4.5) * state->zoom_level, get_color_from_string(DEFAULT_HIGHLIGHT_COLOR));
+    DrawSplineBezierCubic(points, 4, (DEFAULT_WIRE_THICKNESS) * state->zoom_level, state->foreground_color);
+
+    return;
+}
+
+void reset_pin_under_pointer_states(program_state_t *state)
+{
+    // Is a pin under the mouse pointer?
+
+    connector_t *c = NULL;
+    connector_description_t *cd = NULL;
+    wire_description_t *wd = NULL;
+    pin_t *p = NULL;
+    int yoff = 0;
+    int xoff = 0;
+
+    harness_t *h = &state->harnesses[state->harness_index];
+    harness_description_t *hd = &state->harness_descriptions[state->harness_index];
+    int n_wires = hd->n_wire_descriptions;
+    for (int j = 0; j < hd->n_connector_descriptions; ++j) {
+        cd = &hd->connector_descriptions[j];
+        for (int k = 0; k < cd->n_pins; ++k) {
+            cd->pins[k].is_under_pointer = 0;
+        }
+    }
+    state->n_pins_under_pointer = 0;
+    state->c1_under_pointer = NULL;
+    state->p1_under_pointer = NULL;
+    state->c2_under_pointer = NULL;
+    state->p2_under_pointer = NULL;
+
+    return;
+}
+
