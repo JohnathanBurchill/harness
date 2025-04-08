@@ -22,6 +22,27 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+char *strsep(char **str, const char *separators) {
+    char *start = *str;
+    char *p;
+
+    if (start == NULL) {
+        return NULL;
+    }
+
+    p = strpbrk(start, separators);
+    if (p) {
+        *p = '\0';
+        *str = p + 1;
+    } else {
+        *str = NULL;
+    }
+    return start;
+}
+#endif
+
+
 #include <raylib.h>
 
 #include "fira_code_bold_font.h"
