@@ -19,6 +19,6 @@
 5. `./simple_harness`
 
 ## Building on Windows
-0. Install (w64devkit)[https://github.com/skeeto/w64devkit]
+0. Install [w64devkit](https://github.com/skeeto/w64devkit)
 1. Follow instructions for Building on Linux.
 
