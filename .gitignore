@@ -1,0 +1,5 @@
+compile
+simple_harness
+
+*.exe
+build/

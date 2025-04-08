@@ -24,7 +24,8 @@
 
 #include <raylib.h>
 
-#define FONT_NAME "Replace this string with a TTF filename from ${HOME}/bin and compile"
+#include "fira_code_bold_font.h"
+
 #define FONT_SIZE 14
 #define FONT_SPACING 2
 #define TITLE_FONT_SCALE 1.25
@@ -222,7 +223,7 @@ int main(int argc, char **argv)
 
     int font_status = load_fonts(&state);
     if (font_status != 0) {
-        fprintf(stderr, "Unable to load font '%s'\n", FONT_NAME);
+        fprintf(stderr, "Unable to load font.\n");
         return EXIT_FAILURE;
     }
 
@@ -1039,21 +1040,25 @@ int load_fonts(program_state_t *state)
     if (IsFontValid(state->connector_font)) {
         UnloadFont(state->connector_font);
     }
-    char font_filename[FILENAME_MAX] = {0};
-    char *home = getenv("HOME");
-    if (home == NULL) {
-        fprintf(stderr, "Unable to get HOME environment variable\n");
-        return 1;
-    }
-    snprintf(font_filename, FILENAME_MAX, "%s/bin/%s", home, FONT_NAME);
-    state->connector_font = LoadFontEx(font_filename, font_size, NULL, 0);
+    
+    state->connector_font = LoadFontFromMemory(
+        ".ttf",
+        assets_fonts_FiraCode_Bold_ttf,
+        assets_fonts_FiraCode_Bold_ttf_len,
+        font_size, NULL, 0
+    );
     if (!IsFontValid(state->connector_font)) {
         return 1;
     }
     if (IsFontValid(state->title_font)) {
         UnloadFont(state->title_font);
     }
-    state->title_font = LoadFontEx(font_filename, (int)(TITLE_FONT_SCALE * font_size), NULL, 0);
+    state->title_font = LoadFontFromMemory(
+        ".ttf",
+        assets_fonts_FiraCode_Bold_ttf,
+        assets_fonts_FiraCode_Bold_ttf_len,
+        (int)(TITLE_FONT_SCALE * font_size), NULL, 0
+    );
     if (!IsFontValid(state->title_font)) {
         return 1;
     }
