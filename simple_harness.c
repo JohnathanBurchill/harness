@@ -195,6 +195,7 @@ void change_wire_colour(program_state_t *state, int direction);
 char *next_colour(const char *str);
 char *previous_colour(const char *str);
 void change_wire_thickness(program_state_t *state, float delat_amount);
+void mirror_connector_lr(program_state_t *state);
 
 int main(int argc, char **argv)
 {
@@ -347,6 +348,9 @@ int main(int argc, char **argv)
                     break;
                 case KEY_FOUR:
                     change_wire_thickness(&state, 0.5);
+                    break;
+                case KEY_R:
+                    mirror_connector_lr(&state);
                     break;
                 default:
                     break;
@@ -1640,6 +1644,21 @@ void change_wire_thickness(program_state_t *state, float delat_amount)
                 // Handled this pin
                 p->is_under_pointer = 0;
             }
+        }
+    }
+
+    return;
+}
+
+void mirror_connector_lr(program_state_t *state)
+{
+    connector_t *c = NULL;
+    harness_t *h = &state->harnesses[state->harness_index];
+    for (int i = 0; i < h->n_connectors; ++i) {
+        c = &h->connectors[i];
+        if (CheckCollisionPointRec(state->mouse_position, c->outline)) {
+            h->description->connector_descriptions[i].mirror_lr = !h->description->connector_descriptions[i].mirror_lr;
+            break;
         }
     }
 
