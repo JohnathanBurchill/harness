@@ -8,7 +8,7 @@ Harness connectors and wiring are expressed in ASCII text files.
 
 ## Building
 
-See (BUILDING.md)[BUILDING.md].
+See [BUILDING.md](BUILDING.md).
 
 ## Usage
 
