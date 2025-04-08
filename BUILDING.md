@@ -18,7 +18,7 @@
 4. `./compile`
 5. `./simple_harness`
 
-## Usage
+## Building on Windows
+0. Install (w64devkit)[https://github.com/skeeto/w64devkit]
+1. Follow instructions for Building on Linux.
 
-1. `./simple_harness --make-template` generates a template file.
-2. `./simple_harness ./template_harness.txt` launches the GUI viewer with the template file.
