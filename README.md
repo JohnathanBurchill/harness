@@ -35,9 +35,8 @@ Assumes you know how to keep track of file edits and history yourself. The progr
 - `2` - with wire highlighted: cycle forward through wire colours
 - `3` - with wire highlighted: decrease wire thickness
 - `4` - with wire highlighted: increase wire thickness
+- `p` - previous harness
 - `n` - next harness
-- `p` - next harness
-
 
 ## License
 
